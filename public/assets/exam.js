@@ -2,11 +2,15 @@ let state = {
   exam: null,
   questions: [],
   answers: {},
+  doubts: {},
   current: 0,
   startedAt: null,
-  submitting: false
+  submitting: false,
+  leaving: false
 };
+
 let timerId = null;
+let heartbeatId = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({
@@ -22,17 +26,21 @@ function fmtTime(totalSec) {
 
 function renderQuestion() {
   const q = state.questions[state.current];
+
   if (!q) {
     document.getElementById('questionNumber').textContent = 'Tidak ada soal';
     document.getElementById('questionText').textContent = 'Ujian belum memiliki soal.';
     document.getElementById('options').innerHTML = '';
     document.getElementById('prevBtn').disabled = true;
     document.getElementById('nextBtn').disabled = true;
+    document.getElementById('doubtBtn').disabled = true;
     document.getElementById('submitBtn').disabled = true;
     return;
   }
 
   const selected = state.answers[q.id];
+  const doubtful = Boolean(state.doubts[q.id]);
+
   document.getElementById('questionNumber').textContent = `Soal ${q.number}`;
   document.getElementById('questionText').textContent = q.text;
   document.getElementById('saveState').textContent = selected ? `Jawaban ${selected} tersimpan` : 'Belum memilih';
@@ -48,15 +56,25 @@ function renderQuestion() {
   }).join('');
 
   document.querySelectorAll('input[name="answer"]').forEach((input) => input.addEventListener('change', choose));
+
+  const doubtBtn = document.getElementById('doubtBtn');
+  doubtBtn.disabled = false;
+  doubtBtn.classList.toggle('active', doubtful);
+  doubtBtn.textContent = doubtful ? '⚑ Hapus Tanda Ragu-ragu' : '⚑ Tandai Ragu-ragu';
+
   document.getElementById('prevBtn').disabled = state.current === 0;
   document.getElementById('nextBtn').disabled = state.questions.length === 0;
   document.getElementById('nextBtn').textContent = state.current === state.questions.length - 1 ? 'Selesai →' : 'Berikutnya →';
+
   renderGrid();
 }
 
 function renderGrid() {
   document.getElementById('qgrid').innerHTML = state.questions.map((q, index) => {
-    return `<button type="button" class="qbtn ${state.answers[q.id] ? 'done' : ''}" data-i="${index}">${q.number}</button>`;
+    const doubtful = Boolean(state.doubts[q.id]);
+    const done = Boolean(state.answers[q.id]);
+    const className = doubtful ? 'doubt' : (done ? 'done' : '');
+    return `<button type="button" class="qbtn ${className}" data-i="${index}" title="${doubtful ? 'Ditandai ragu-ragu' : done ? 'Sudah dijawab' : 'Belum dijawab'}">${q.number}</button>`;
   }).join('');
 
   document.querySelectorAll('.qbtn').forEach((button) => {
@@ -84,14 +102,16 @@ async function choose(event) {
     });
     const data = await response.json();
 
+    if (response.status === 423 || data.locked) {
+      state.leaving = true;
+      return location.href = '/unlock.html';
+    }
+
     if (!response.ok) {
       if (previous) state.answers[q.id] = previous;
       else delete state.answers[q.id];
       renderQuestion();
       document.getElementById('saveState').textContent = 'Gagal menyimpan';
-      if (response.status === 403) {
-        await submitExam(true);
-      }
       return;
     }
 
@@ -103,6 +123,37 @@ async function choose(event) {
     else delete state.answers[q.id];
     renderQuestion();
     document.getElementById('saveState').textContent = 'Gagal menyimpan';
+  }
+}
+
+async function toggleDoubt() {
+  const q = state.questions[state.current];
+  if (!q) return;
+
+  const value = !Boolean(state.doubts[q.id]);
+  const button = document.getElementById('doubtBtn');
+  button.disabled = true;
+
+  try {
+    const response = await fetch('/api/student/doubt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questionId: q.id, value })
+    });
+    const data = await response.json();
+
+    if (response.status === 423 || data.locked) {
+      state.leaving = true;
+      return location.href = '/unlock.html';
+    }
+
+    if (!response.ok) throw new Error(data.error || 'Gagal menyimpan tanda ragu-ragu.');
+
+    state.doubts = data.doubts || state.doubts;
+    renderQuestion();
+  } catch {
+    button.disabled = false;
+    document.getElementById('saveState').textContent = 'Gagal menyimpan tanda ragu-ragu';
   }
 }
 
@@ -123,44 +174,88 @@ function updateTimer() {
 
 async function submitExam(auto = false) {
   if (state.submitting) return;
+
+  if (!auto) {
+    const confirmed = window.confirm('Yakin semua jawaban sudah selesai dan ingin mengumpulkan?');
+    if (!confirmed) return;
+  }
+
   state.submitting = true;
+  state.leaving = true;
 
   const button = document.getElementById('submitBtn');
   button.disabled = true;
 
-  if (!auto) {
-    const confirmed = window.confirm('Yakin semua jawaban sudah selesai dan ingin mengumpulkan?');
-    if (!confirmed) {
-      state.submitting = false;
-      button.disabled = false;
-      return;
-    }
-  }
-
   try {
-    const response = await fetch('/api/student/submit', { method: 'POST' });
+    const response = await fetch('/api/student/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
     const data = await response.json();
 
     if (!response.ok) {
+      if (response.status === 423 || data.locked) {
+        return location.href = '/unlock.html';
+      }
       document.getElementById('submitMessage').innerHTML = `<div class="error">${escapeHtml(data.error || 'Gagal mengumpulkan ujian.')}</div>`;
       state.submitting = false;
+      state.leaving = false;
       button.disabled = false;
       return;
     }
 
     window.removeEventListener('beforeunload', preventLeave);
+    clearInterval(heartbeatId);
     location.href = '/dashboard.html?submitted=1';
   } catch {
     document.getElementById('submitMessage').innerHTML = '<div class="error">Server tidak merespons. Coba kumpulkan lagi.</div>';
     state.submitting = false;
+    state.leaving = false;
     button.disabled = false;
   }
 }
 
 function preventLeave(event) {
-  if (!state.submitting) {
+  if (!state.leaving && !state.submitting) {
     event.preventDefault();
     event.returnValue = '';
+  }
+}
+
+function lockOnLeave() {
+  if (state.leaving || state.submitting) return;
+
+  const body = JSON.stringify({ reason: 'Siswa meninggalkan halaman ujian.' });
+
+  try {
+    fetch('/api/student/lock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+      credentials: 'same-origin'
+    }).catch(() => {});
+  } catch {
+    // Browser may not allow async requests during pagehide.
+  }
+}
+
+async function heartbeat() {
+  if (state.leaving || state.submitting) return;
+  try {
+    const response = await fetch('/api/student/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (response.status === 423) {
+      state.leaving = true;
+      location.href = '/unlock.html';
+    }
+  } catch {
+    // A temporary network error is handled by the server-side stale timer.
   }
 }
 
@@ -168,12 +263,14 @@ async function load() {
   const response = await fetch('/api/student/questions', { cache: 'no-store' });
   const data = await response.json();
 
+  if (response.status === 423 || data.locked) return location.href = '/unlock.html';
+  if (response.status === 409 && data.submitted) return location.href = '/dashboard.html';
   if (!response.ok) return location.href = '/instruction.html';
-  if (data.attempt?.submittedAt) return location.href = '/dashboard.html';
 
   state.exam = data.exam;
   state.questions = Array.isArray(data.questions) ? data.questions : [];
   state.answers = data.attempt.answers || {};
+  state.doubts = data.attempt.doubts || {};
   state.startedAt = data.attempt.startedAt;
 
   document.getElementById('subjectLabel').textContent = data.exam.subject;
@@ -181,12 +278,14 @@ async function load() {
   renderQuestion();
   updateTimer();
   timerId = setInterval(updateTimer, 1000);
+  heartbeatId = setInterval(heartbeat, 5000);
 
   if (!state.questions.length) {
     document.getElementById('submitMessage').innerHTML = '<div class="error">Ujian belum memiliki soal. Hubungi admin.</div>';
   }
 
   window.addEventListener('beforeunload', preventLeave);
+  window.addEventListener('pagehide', lockOnLeave);
 }
 
 document.getElementById('prevBtn').addEventListener('click', () => {
@@ -206,6 +305,7 @@ document.getElementById('nextBtn').addEventListener('click', () => {
   }
 });
 
+document.getElementById('doubtBtn').addEventListener('click', toggleDoubt);
 document.getElementById('submitBtn').addEventListener('click', () => submitExam(false));
 
 load().catch(() => location.href = '/instruction.html');
