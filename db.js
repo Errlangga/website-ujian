@@ -8,14 +8,17 @@ const SEED_FILE = path.join(DATA_DIR, 'seed.json');
 function ensureDb() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    const seed = fs.readFileSync(SEED_FILE, 'utf8');
-    fs.writeFileSync(DB_FILE, seed, 'utf8');
+    fs.copyFileSync(SEED_FILE, DB_FILE);
   }
 }
 
 function readDb() {
   ensureDb();
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  } catch (error) {
+    throw new Error('Database lokal rusak atau tidak dapat dibaca.');
+  }
 }
 
 function writeDb(db) {
