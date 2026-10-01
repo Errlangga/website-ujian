@@ -5,61 +5,136 @@ const { readDb, mutateDb } = require('./db');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const MAX_LOGIN_ATTEMPTS = 12;
+const loginAttempts = new Map();
 const sessions = new Map();
 
+const MAJORS = ['AKUTANSI', 'TBSM', 'TKJ'];
+const GRADES = ['10', '11', '12'];
+const ANSWERS = ['A', 'B', 'C', 'D', 'E'];
+
+app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   next();
 });
 
-function nowMs() { return Date.now(); }
-function createId(prefix) { return `${prefix}-${crypto.randomBytes(6).toString('hex')}`; }
-function createToken() { return crypto.randomBytes(32).toString('hex'); }
-function normalize(value) { return String(value ?? '').trim(); }
-function normalizeKey(value) { return normalize(value).toLowerCase(); }
+function nowMs() {
+  return Date.now();
+}
+
+function createId(prefix) {
+  return `${prefix}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function createToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function normalize(value) {
+  return String(value ?? '').trim();
+}
+
+function normalizeKey(value) {
+  return normalize(value).toLowerCase();
+}
+
 function parseStartTime(value) {
   const ms = new Date(value).getTime();
   return Number.isFinite(ms) ? ms : NaN;
 }
+
+function validString(value, min, max) {
+  const text = normalize(value);
+  return text.length >= min && text.length <= max;
+}
+
+function validateMajor(value) {
+  return MAJORS.includes(value);
+}
+
+function validateGrade(value) {
+  return GRADES.includes(value);
+}
+
+function validateAnswer(value) {
+  return ANSWERS.includes(value);
+}
+
+function getSessionToken(req) {
+  return req.headers.cookie?.match(/(?:^|; )sid=([^;]+)/)?.[1] || null;
+}
+
 function getSession(req) {
-  const token = req.headers.cookie?.match(/(?:^|; )sid=([^;]+)/)?.[1];
-  return token ? sessions.get(token) : null;
+  const token = getSessionToken(req);
+  if (!token) return null;
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (session.expiresAt <= nowMs()) {
+    sessions.delete(token);
+    return null;
+  }
+  return session;
 }
-function setSession(res, session) {
+
+function setSession(res, sessionData) {
   const token = createToken();
-  sessions.set(token, session);
-  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/`);
+  sessions.set(token, { ...sessionData, expiresAt: nowMs() + SESSION_TTL_MS });
+  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
 }
+
 function clearSession(req, res) {
-  const token = req.headers.cookie?.match(/(?:^|; )sid=([^;]+)/)?.[1];
+  const token = getSessionToken(req);
   if (token) sessions.delete(token);
   res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
 }
+
 function requireStudent(req, res, next) {
   const session = getSession(req);
-  if (!session || session.role !== 'student') return res.status(401).json({ ok: false, error: 'Sesi siswa tidak ditemukan.' });
+  if (!session || session.role !== 'student') {
+    return res.status(401).json({ ok: false, error: 'Sesi siswa tidak ditemukan.' });
+  }
   req.session = session;
   next();
 }
+
 function requireAdmin(req, res, next) {
   const session = getSession(req);
-  if (!session || session.role !== 'admin') return res.status(401).json({ ok: false, error: 'Sesi admin tidak ditemukan.' });
+  if (!session || session.role !== 'admin') {
+    return res.status(401).json({ ok: false, error: 'Sesi admin tidak ditemukan.' });
+  }
   req.session = session;
   next();
 }
-function validateMajor(value) { return ['AKUTANSI', 'TBSM', 'TKJ'].includes(value); }
-function validateGrade(value) { return ['10', '11', '12'].includes(value); }
-function examForStudent(db, student) { return db.exams.find((exam) => exam.id === student.examId); }
-function publicQuestion(question) {
-  return { id: question.id, number: question.number, text: question.text, options: question.options };
+
+function examForStudent(db, student) {
+  return db.exams.find((exam) => exam.id === student.examId) || null;
 }
+
 function findAttempt(db, studentId, examId) {
-  return db.attempts.find((attempt) => attempt.studentId === studentId && attempt.examId === examId);
+  return db.attempts.find((attempt) => attempt.studentId === studentId && attempt.examId === examId) || null;
 }
+
+function questionCount(db, examId) {
+  return db.questions.filter((question) => question.examId === examId).length;
+}
+
+function publicQuestion(question) {
+  return {
+    id: question.id,
+    number: question.number,
+    text: question.text,
+    options: question.options
+  };
+}
+
 function serializeStudent(db, student) {
   const exam = examForStudent(db, student);
   const attempt = exam ? findAttempt(db, student.id, exam.id) : null;
@@ -70,7 +145,7 @@ function serializeStudent(db, student) {
     examCode: student.examCode,
     grade: student.grade,
     major: student.major,
-    active: student.active,
+    active: student.active !== false,
     exam: exam ? {
       id: exam.id,
       subject: exam.subject,
@@ -82,50 +157,214 @@ function serializeStudent(db, student) {
     attempt: attempt ? {
       startedAt: attempt.startedAt,
       submittedAt: attempt.submittedAt,
-      answers: attempt.answers,
+      answers: { ...(attempt.answers || {}) },
       score: attempt.score
     } : null
   };
 }
 
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+function isAttemptExpired(attempt, exam) {
+  if (!attempt || !exam || !attempt.startedAt) return false;
+  const startedMs = parseStartTime(attempt.startedAt);
+  if (!Number.isFinite(startedMs) || !Number.isFinite(Number(exam.durationMinutes))) return false;
+  return nowMs() >= startedMs + Number(exam.durationMinutes) * 60 * 1000;
+}
+
+function calculateScore(db, attempt, examId) {
+  const questions = db.questions.filter((question) => question.examId === examId);
+  if (!questions.length) return 0;
+  const correct = questions.reduce((total, question) => {
+    return total + (attempt.answers?.[question.id] === question.answer ? 1 : 0);
+  }, 0);
+  return Math.round((correct / questions.length) * 100);
+}
+
+function finalizeAttempt(attempt, db, exam) {
+  if (!attempt.submittedAt) {
+    attempt.score = calculateScore(db, attempt, exam.id);
+    attempt.submittedAt = new Date().toISOString();
+  }
+  return attempt;
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(password, salt, 32);
+  return `scrypt$${salt.toString('hex')}$${derived.toString('hex')}`;
+}
+
+function verifyPassword(password, stored) {
+  const value = normalize(stored);
+  if (value.startsWith('scrypt$')) {
+    const [, saltHex, hashHex] = value.split('$');
+    if (!saltHex || !hashHex || !/^[0-9a-f]+$/i.test(saltHex) || !/^[0-9a-f]+$/i.test(hashHex)) return false;
+    const salt = Buffer.from(saltHex, 'hex');
+    const expected = Buffer.from(hashHex, 'hex');
+    const actual = crypto.scryptSync(password, salt, expected.length || 32);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  }
+  return value === password;
+}
+
+function loginKey(req, username) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  return `${ip}|${username}`;
+}
+
+function checkLoginRateLimit(req, username) {
+  const key = loginKey(req, username);
+  const now = nowMs();
+  const bucket = loginAttempts.get(key) || { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+  if (bucket.resetAt <= now) {
+    bucket.count = 0;
+    bucket.resetAt = now + LOGIN_WINDOW_MS;
+  }
+  if (bucket.count >= MAX_LOGIN_ATTEMPTS) {
+    return { blocked: true, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
+  }
+  bucket.count += 1;
+  loginAttempts.set(key, bucket);
+  return { blocked: false };
+}
+
+function clearSuccessfulLoginRate(req, username) {
+  loginAttempts.delete(loginKey(req, username));
+}
+
+function validateExamInput(input) {
+  const subject = normalize(input.subject);
+  const title = normalize(input.title);
+  const startTime = normalize(input.startTime);
+  const durationMinutes = Number(input.durationMinutes);
+  const instructions = normalize(input.instructions);
+  if (!validString(subject, 1, 100)) return { error: 'Mata pelajaran wajib diisi dan maksimal 100 karakter.' };
+  if (!validString(title, 1, 160)) return { error: 'Judul ujian wajib diisi dan maksimal 160 karakter.' };
+  if (!Number.isFinite(parseStartTime(startTime))) return { error: 'Waktu mulai ujian tidak valid.' };
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) return { error: 'Durasi harus antara 1 sampai 600 menit.' };
+  if (instructions.length > 3000) return { error: 'Petunjuk maksimal 3000 karakter.' };
+  return { subject, title, startTime, durationMinutes, instructions };
+}
+
+function validateStudentInput(input) {
+  const student = {
+    name: normalize(input.name),
+    username: normalize(input.username),
+    examCode: normalize(input.examCode),
+    grade: normalize(input.grade),
+    major: normalize(input.major).toUpperCase(),
+    examId: normalize(input.examId),
+    active: input.active !== false
+  };
+  if (!validString(student.name, 1, 120)) return { error: 'Nama siswa wajib diisi dan maksimal 120 karakter.' };
+  if (!/^[A-Za-z0-9._-]{3,50}$/.test(student.username)) return { error: 'Username hanya boleh berisi huruf, angka, titik, garis bawah, dan strip (3-50 karakter).' };
+  if (!/^[A-Za-z0-9_-]{4,50}$/.test(student.examCode)) return { error: 'Kode ujian hanya boleh berisi huruf, angka, garis bawah, dan strip (4-50 karakter).' };
+  if (!validateGrade(student.grade)) return { error: 'Kelas harus 10, 11, atau 12.' };
+  if (!validateMajor(student.major)) return { error: 'Jurusan harus AKUTANSI, TBSM, atau TKJ.' };
+  if (!student.examId) return { error: 'Ujian harus dipilih.' };
+  return { student };
+}
+
+function validateQuestionInput(input) {
+  const question = {
+    examId: normalize(input.examId),
+    number: Number(input.number),
+    text: normalize(input.text),
+    options: {
+      A: normalize(input.A),
+      B: normalize(input.B),
+      C: normalize(input.C),
+      D: normalize(input.D),
+      E: normalize(input.E)
+    },
+    answer: normalize(input.answer).toUpperCase()
+  };
+  if (!question.examId) return { error: 'Ujian harus dipilih.' };
+  if (!Number.isInteger(question.number) || question.number < 1 || question.number > 500) return { error: 'Nomor soal harus 1 sampai 500.' };
+  if (!validString(question.text, 1, 10000)) return { error: 'Pertanyaan wajib diisi dan maksimal 10000 karakter.' };
+  if (Object.entries(question.options).some(([, value]) => !validString(value, 1, 5000))) return { error: 'Semua pilihan A-E wajib diisi dan maksimal 5000 karakter.' };
+  if (!validateAnswer(question.answer)) return { error: 'Kunci jawaban harus A, B, C, D, atau E.' };
+  return { question };
+}
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
 app.get('/api/config', (req, res) => {
   const db = readDb();
-  res.json({ ok: true, settings: db.settings, majors: ['AKUTANSI', 'TBSM', 'TKJ'], grades: ['10', '11', '12'] });
+  res.json({
+    ok: true,
+    settings: db.settings,
+    majors: MAJORS,
+    grades: GRADES
+  });
 });
 
 app.post('/api/student/login', (req, res) => {
-  const username = normalizeKey(req.body.username);
-  const examCode = normalizeKey(req.body.examCode);
+  const username = normalize(req.body.username);
+  const examCode = normalize(req.body.examCode);
   if (!username || !examCode) return res.status(400).json({ ok: false, error: 'Username dan kode ujian wajib diisi.' });
+
+  const rate = checkLoginRateLimit(req, normalizeKey(username));
+  if (rate.blocked) {
+    res.setHeader('Retry-After', String(rate.retryAfter));
+    return res.status(429).json({ ok: false, error: `Terlalu banyak percobaan. Coba lagi dalam ${rate.retryAfter} detik.` });
+  }
+
   const db = readDb();
-  const student = db.students.find((item) => normalizeKey(item.username) === username && normalizeKey(item.examCode) === examCode && item.active !== false);
+  const student = db.students.find((item) =>
+    normalizeKey(item.username) === normalizeKey(username) &&
+    normalizeKey(item.examCode) === normalizeKey(examCode) &&
+    item.active !== false
+  );
   if (!student) return res.status(401).json({ ok: false, error: 'Username atau kode ujian tidak cocok.' });
+
   const exam = examForStudent(db, student);
   if (!exam) return res.status(409).json({ ok: false, error: 'Ujian siswa belum dikonfigurasi admin.' });
+
+  clearSuccessfulLoginRate(req, normalizeKey(username));
   setSession(res, { role: 'student', studentId: student.id });
   res.json({ ok: true, student: serializeStudent(db, student) });
 });
 
-app.post('/api/student/logout', requireStudent, (req, res) => { clearSession(req, res); res.json({ ok: true }); });
+app.post('/api/student/logout', requireStudent, (req, res) => {
+  clearSession(req, res);
+  res.json({ ok: true });
+});
 
 app.get('/api/student/me', requireStudent, (req, res) => {
   const db = readDb();
   const student = db.students.find((item) => item.id === req.session.studentId);
-  if (!student) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
-  res.json({ ok: true, student: serializeStudent(db, student) });
+  if (!student || student.active === false) return res.status(404).json({ ok: false, error: 'Akun siswa tidak ditemukan atau sudah dinonaktifkan.' });
+  const exam = examForStudent(db, student);
+  if (exam) {
+    const attempt = findAttempt(db, student.id, exam.id);
+    if (attempt && !attempt.submittedAt && isAttemptExpired(attempt, exam)) {
+      finalizeAttempt(attempt, db, exam);
+      mutateDb((nextDb) => {
+        const persisted = findAttempt(nextDb, student.id, exam.id);
+        if (persisted) finalizeAttempt(persisted, nextDb, exam);
+      });
+    }
+  }
+  const freshDb = readDb();
+  const freshStudent = freshDb.students.find((item) => item.id === student.id);
+  res.json({ ok: true, serverNow: new Date().toISOString(), student: serializeStudent(freshDb, freshStudent) });
 });
 
 app.post('/api/student/start', requireStudent, (req, res) => {
   const db = readDb();
   const student = db.students.find((item) => item.id === req.session.studentId);
-  if (!student) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
+  if (!student || student.active === false) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
   const exam = examForStudent(db, student);
   if (!exam) return res.status(404).json({ ok: false, error: 'Ujian tidak ditemukan.' });
+  if (questionCount(db, exam.id) === 0) return res.status(409).json({ ok: false, error: 'Ujian belum memiliki soal. Hubungi admin.' });
 
   const startMs = parseStartTime(exam.startTime);
   if (!Number.isFinite(startMs)) return res.status(500).json({ ok: false, error: 'Waktu mulai ujian tidak valid.' });
-  if (nowMs() < startMs) return res.status(403).json({ ok: false, error: `Ujian baru dapat dimulai ${new Date(startMs).toLocaleString('id-ID')}.` });
+  if (nowMs() < startMs) {
+    return res.status(403).json({ ok: false, error: `Ujian baru dapat dimulai ${new Date(startMs).toLocaleString('id-ID')}.` });
+  }
 
   const result = mutateDb((nextDb) => {
     let attempt = findAttempt(nextDb, student.id, exam.id);
@@ -145,32 +384,51 @@ app.post('/api/student/start', requireStudent, (req, res) => {
     return { attempt, alreadySubmitted: false };
   });
 
-  res.json({ ok: true, attempt: result.attempt, alreadySubmitted: result.alreadySubmitted });
+  res.json({
+    ok: true,
+    attempt: result.attempt,
+    alreadySubmitted: result.alreadySubmitted
+  });
 });
 
 app.get('/api/student/questions', requireStudent, (req, res) => {
   const db = readDb();
   const student = db.students.find((item) => item.id === req.session.studentId);
-  if (!student) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
+  if (!student || student.active === false) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
   const exam = examForStudent(db, student);
   if (!exam) return res.status(404).json({ ok: false, error: 'Ujian tidak ditemukan.' });
   const attempt = findAttempt(db, student.id, exam.id);
   if (!attempt) return res.status(403).json({ ok: false, error: 'Silakan mulai ujian terlebih dahulu.' });
 
+  if (!attempt.submittedAt && isAttemptExpired(attempt, exam)) {
+    finalizeAttempt(attempt, db, exam);
+    mutateDb((nextDb) => {
+      const persisted = findAttempt(nextDb, student.id, exam.id);
+      if (persisted) finalizeAttempt(persisted, nextDb, exam);
+    });
+  }
+
+  const freshDb = readDb();
+  const freshAttempt = findAttempt(freshDb, student.id, exam.id);
   res.json({
     ok: true,
+    serverNow: new Date().toISOString(),
     exam: {
       subject: exam.subject,
       title: exam.title,
       durationMinutes: exam.durationMinutes,
-      startTime: exam.startTime
+      startTime: exam.startTime,
+      questionCount: questionCount(freshDb, exam.id)
     },
-    questions: db.questions.filter((q) => q.examId === exam.id).sort((a,b) => a.number - b.number).map(publicQuestion),
+    questions: freshDb.questions
+      .filter((q) => q.examId === exam.id)
+      .sort((a, b) => a.number - b.number)
+      .map(publicQuestion),
     attempt: {
-      startedAt: attempt.startedAt,
-      submittedAt: attempt.submittedAt,
-      answers: attempt.answers,
-      score: attempt.score
+      startedAt: freshAttempt.startedAt,
+      submittedAt: freshAttempt.submittedAt,
+      answers: { ...(freshAttempt.answers || {}) },
+      score: freshAttempt.score
     }
   });
 });
@@ -178,20 +436,22 @@ app.get('/api/student/questions', requireStudent, (req, res) => {
 app.post('/api/student/answer', requireStudent, (req, res) => {
   const questionId = normalize(req.body.questionId);
   const answer = normalize(req.body.answer).toUpperCase();
-  if (!questionId || !['A','B','C','D','E'].includes(answer)) return res.status(400).json({ ok: false, error: 'Jawaban tidak valid.' });
+  if (!questionId || !validateAnswer(answer)) return res.status(400).json({ ok: false, error: 'Jawaban tidak valid.' });
 
   const result = mutateDb((db) => {
     const student = db.students.find((item) => item.id === req.session.studentId);
     const exam = student ? examForStudent(db, student) : null;
-    if (!student || !exam) return { error: 'Data ujian tidak ditemukan.', code: 404 };
+    if (!student || student.active === false || !exam) return { error: 'Data ujian tidak ditemukan.', code: 404 };
+
     const question = db.questions.find((q) => q.id === questionId && q.examId === exam.id);
     if (!question) return { error: 'Soal tidak ditemukan.', code: 404 };
+
     const attempt = findAttempt(db, student.id, exam.id);
     if (!attempt) return { error: 'Ujian belum dimulai.', code: 403 };
     if (attempt.submittedAt) return { error: 'Ujian sudah dikumpulkan.', code: 409 };
-    const expiresAt = parseStartTime(attempt.startedAt) + exam.durationMinutes * 60 * 1000;
-    if (exam.durationMinutes > 0 && nowMs() > expiresAt) return { error: 'Waktu ujian sudah habis. Silakan kumpulkan jawaban.', code: 403 };
-    attempt.answers[questionId] = answer;
+    if (isAttemptExpired(attempt, exam)) return { error: 'Waktu ujian sudah habis.', code: 403 };
+
+    attempt.answers = { ...(attempt.answers || {}), [questionId]: answer };
     return { answers: attempt.answers };
   });
 
@@ -203,15 +463,13 @@ app.post('/api/student/submit', requireStudent, (req, res) => {
   const result = mutateDb((db) => {
     const student = db.students.find((item) => item.id === req.session.studentId);
     const exam = student ? examForStudent(db, student) : null;
-    if (!student || !exam) return { error: 'Data ujian tidak ditemukan.', code: 404 };
+    if (!student || student.active === false || !exam) return { error: 'Data ujian tidak ditemukan.', code: 404 };
+
     const attempt = findAttempt(db, student.id, exam.id);
     if (!attempt) return { error: 'Ujian belum dimulai.', code: 403 };
     if (attempt.submittedAt) return { attempt };
 
-    const questions = db.questions.filter((q) => q.examId === exam.id);
-    const correct = questions.reduce((count, q) => count + (attempt.answers[q.id] === q.answer ? 1 : 0), 0);
-    attempt.score = questions.length ? Math.round((correct / questions.length) * 100) : 0;
-    attempt.submittedAt = new Date().toISOString();
+    finalizeAttempt(attempt, db, exam);
     return { attempt };
   });
 
@@ -220,11 +478,31 @@ app.post('/api/student/submit', requireStudent, (req, res) => {
 });
 
 app.post('/api/admin/login', (req, res) => {
-  const username = normalizeKey(req.body.username);
+  const username = normalize(req.body.username);
   const password = normalize(req.body.password);
+  if (!username || !password) return res.status(400).json({ ok: false, error: 'Username dan password wajib diisi.' });
+
+  const rate = checkLoginRateLimit(req, `admin:${normalizeKey(username)}`);
+  if (rate.blocked) {
+    res.setHeader('Retry-After', String(rate.retryAfter));
+    return res.status(429).json({ ok: false, error: `Terlalu banyak percobaan. Coba lagi dalam ${rate.retryAfter} detik.` });
+  }
+
   const db = readDb();
-  const admin = db.admins.find((item) => normalizeKey(item.username) === username && item.password === password);
-  if (!admin) return res.status(401).json({ ok: false, error: 'Username atau password admin salah.' });
+  const admin = db.admins.find((item) => normalizeKey(item.username) === normalizeKey(username));
+  if (!admin || !verifyPassword(password, admin.password)) {
+    return res.status(401).json({ ok: false, error: 'Username atau password admin salah.' });
+  }
+
+  if (!String(admin.password).startsWith('scrypt$')) {
+    const replacement = hashPassword(password);
+    mutateDb((nextDb) => {
+      const current = nextDb.admins.find((item) => normalizeKey(item.username) === normalizeKey(username));
+      if (current) current.password = replacement;
+    });
+  }
+
+  clearSuccessfulLoginRate(req, `admin:${normalizeKey(username)}`);
   setSession(res, { role: 'admin', username: admin.username });
   res.json({ ok: true, username: admin.username });
 });
@@ -234,30 +512,73 @@ app.post('/api/admin/logout', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/me', requireAdmin, (req, res) => res.json({ ok: true, username: req.session.username }));
+app.get('/api/admin/me', requireAdmin, (req, res) => {
+  res.json({ ok: true, username: req.session.username });
+});
+
+app.post('/api/admin/password', requireAdmin, (req, res) => {
+  const currentPassword = normalize(req.body.currentPassword);
+  const newPassword = normalize(req.body.newPassword);
+  if (newPassword.length < 8 || newPassword.length > 200) {
+    return res.status(400).json({ ok: false, error: 'Password baru harus 8-200 karakter.' });
+  }
+
+  const result = mutateDb((db) => {
+    const admin = db.admins.find((item) => normalizeKey(item.username) === normalizeKey(req.session.username));
+    if (!admin || !verifyPassword(currentPassword, admin.password)) return { error: 'Password lama salah.', code: 401 };
+    admin.password = hashPassword(newPassword);
+    return { ok: true };
+  });
+
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  clearSession(req, res);
+  res.json({ ok: true, message: 'Password berhasil diganti. Silakan login kembali.' });
+});
 
 app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
   const db = readDb();
   const attempts = db.attempts.map((attempt) => {
-    const student = db.students.find((s) => s.id === attempt.studentId);
-    const exam = db.exams.find((e) => e.id === attempt.examId);
+    const student = db.students.find((student) => student.id === attempt.studentId);
+    const exam = db.exams.find((exam) => exam.id === attempt.examId);
     return {
-      ...attempt,
-      student: student ? { name: student.name, username: student.username, grade: student.grade, major: student.major } : null,
-      exam: exam ? { subject: exam.subject, title: exam.title } : null
+      id: attempt.id,
+      startedAt: attempt.startedAt,
+      submittedAt: attempt.submittedAt,
+      answers: attempt.answers,
+      score: attempt.score,
+      student: student ? {
+        id: student.id,
+        name: student.name,
+        username: student.username,
+        grade: student.grade,
+        major: student.major
+      } : null,
+      exam: exam ? {
+        id: exam.id,
+        subject: exam.subject,
+        title: exam.title
+      } : null
     };
   });
-  res.json({ ok: true, settings: db.settings, exams: db.exams, students: db.students, questions: db.questions, attempts });
+  res.json({
+    ok: true,
+    settings: db.settings,
+    exams: db.exams,
+    students: db.students,
+    questions: db.questions,
+    attempts
+  });
 });
 
 app.post('/api/admin/exams', requireAdmin, (req, res) => {
-  const subject = normalize(req.body.subject);
-  const title = normalize(req.body.title) || `Ujian ${subject}`;
-  const startTime = normalize(req.body.startTime);
-  const durationMinutes = Number(req.body.durationMinutes || 60);
-  const instructions = normalize(req.body.instructions);
-  if (!subject || !startTime || !Number.isFinite(parseStartTime(startTime)) || !Number.isInteger(durationMinutes) || durationMinutes <= 0) return res.status(400).json({ ok: false, error: 'Data ujian tidak valid.' });
-  const exam = { id: createId('exam'), subject, title, startTime, durationMinutes, instructions };
+  const parsed = validateExamInput(req.body);
+  if (parsed.error) return res.status(400).json({ ok: false, error: parsed.error });
+
+  const exam = {
+    id: createId('exam'),
+    ...parsed,
+  };
+
   mutateDb((db) => db.exams.push(exam));
   res.json({ ok: true, exam });
 });
@@ -265,158 +586,189 @@ app.post('/api/admin/exams', requireAdmin, (req, res) => {
 app.put('/api/admin/exams/:id', requireAdmin, (req, res) => {
   const result = mutateDb((db) => {
     const exam = db.exams.find((item) => item.id === req.params.id);
-    if (!exam) return null;
-    if (req.body.subject !== undefined) exam.subject = normalize(req.body.subject);
-    if (req.body.title !== undefined) exam.title = normalize(req.body.title);
-    if (req.body.startTime !== undefined) exam.startTime = normalize(req.body.startTime);
-    if (req.body.durationMinutes !== undefined) exam.durationMinutes = Number(req.body.durationMinutes);
-    if (req.body.instructions !== undefined) exam.instructions = normalize(req.body.instructions);
-    return exam;
+    if (!exam) return { error: 'Ujian tidak ditemukan.', code: 404 };
+
+    const candidateInput = {
+      subject: req.body.subject ?? exam.subject,
+      title: req.body.title ?? exam.title,
+      startTime: req.body.startTime ?? exam.startTime,
+      durationMinutes: req.body.durationMinutes ?? exam.durationMinutes,
+      instructions: req.body.instructions ?? exam.instructions
+    };
+    const parsed = validateExamInput(candidateInput);
+    if (parsed.error) return { error: parsed.error, code: 400 };
+
+    Object.assign(exam, parsed);
+    return { exam };
   });
-  if (!result) return res.status(404).json({ ok: false, error: 'Ujian tidak ditemukan.' });
-  res.json({ ok: true, exam: result });
+
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json({ ok: true, exam: result.exam });
 });
 
 app.delete('/api/admin/exams/:id', requireAdmin, (req, res) => {
   const result = mutateDb((db) => {
-    const before = db.exams.length;
+    const exists = db.exams.some((item) => item.id === req.params.id);
+    if (!exists) return { error: 'Ujian tidak ditemukan.', code: 404 };
+
+    const linkedAttempts = db.attempts.some((attempt) => attempt.examId === req.params.id);
+    if (linkedAttempts) return { error: 'Ujian sudah memiliki riwayat pengerjaan. Hapus tidak diizinkan.', code: 409 };
+
     db.exams = db.exams.filter((item) => item.id !== req.params.id);
     db.students = db.students.filter((item) => item.examId !== req.params.id);
     db.questions = db.questions.filter((item) => item.examId !== req.params.id);
-    db.attempts = db.attempts.filter((item) => item.examId !== req.params.id);
-    return before !== db.exams.length;
+    return { ok: true };
   });
-  if (!result) return res.status(404).json({ ok: false, error: 'Ujian tidak ditemukan.' });
+
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
   res.json({ ok: true });
 });
 
 app.post('/api/admin/students', requireAdmin, (req, res) => {
-  const student = {
-    id: createId('student'),
-    name: normalize(req.body.name),
-    username: normalize(req.body.username),
-    examCode: normalize(req.body.examCode),
-    grade: normalize(req.body.grade),
-    major: normalize(req.body.major).toUpperCase(),
-    examId: normalize(req.body.examId),
-    active: req.body.active !== false
-  };
-  if (!student.name || !student.username || !student.examCode || !validateGrade(student.grade) || !validateMajor(student.major)) return res.status(400).json({ ok: false, error: 'Data siswa belum lengkap atau kelas/jurusan tidak valid.' });
+  const parsed = validateStudentInput(req.body);
+  if (parsed.error) return res.status(400).json({ ok: false, error: parsed.error });
 
   const created = mutateDb((db) => {
-    if (!db.exams.some((exam) => exam.id === student.examId)) return null;
-    if (db.students.some((s) => normalizeKey(s.username) === normalizeKey(student.username) || normalizeKey(s.examCode) === normalizeKey(student.examCode))) return 'duplicate';
+    if (!db.exams.some((exam) => exam.id === parsed.student.examId)) return { error: 'Ujian tujuan tidak ditemukan.', code: 404 };
+    const duplicate = db.students.some((student) =>
+      normalizeKey(student.username) === normalizeKey(parsed.student.username) ||
+      normalizeKey(student.examCode) === normalizeKey(parsed.student.examCode)
+    );
+    if (duplicate) return { error: 'Username atau kode ujian sudah digunakan.', code: 409 };
+    const student = { id: createId('student'), ...parsed.student };
     db.students.push(student);
-    return student;
+    return { student };
   });
 
-  if (created === null) return res.status(404).json({ ok: false, error: 'Ujian tujuan tidak ditemukan.' });
-  if (created === 'duplicate') return res.status(409).json({ ok: false, error: 'Username atau kode ujian sudah digunakan.' });
-  res.json({ ok: true, student: created });
+  if (created.error) return res.status(created.code).json({ ok: false, error: created.error });
+  res.json({ ok: true, student: created.student });
 });
 
 app.put('/api/admin/students/:id', requireAdmin, (req, res) => {
   const result = mutateDb((db) => {
-    const student = db.students.find((item) => item.id === req.params.id);
-    if (!student) return { notFound: true };
-    for (const key of ['name','username','examCode','grade','major','examId']) {
-      if (req.body[key] !== undefined) student[key] = key === 'major' ? normalize(req.body[key]).toUpperCase() : normalize(req.body[key]);
-    }
-    if (req.body.active !== undefined) student.active = Boolean(req.body.active);
-    return { student };
+    const current = db.students.find((student) => student.id === req.params.id);
+    if (!current) return { error: 'Siswa tidak ditemukan.', code: 404 };
+
+    const parsed = validateStudentInput({
+      ...current,
+      ...req.body,
+      active: req.body.active === undefined ? current.active !== false : Boolean(req.body.active)
+    });
+    if (parsed.error) return { error: parsed.error, code: 400 };
+
+    const duplicate = db.students.some((student) =>
+      student.id !== current.id &&
+      (normalizeKey(student.username) === normalizeKey(parsed.student.username) ||
+       normalizeKey(student.examCode) === normalizeKey(parsed.student.examCode))
+    );
+    if (duplicate) return { error: 'Username atau kode ujian sudah digunakan oleh siswa lain.', code: 409 };
+
+    Object.assign(current, parsed.student);
+    return { student: current };
   });
 
-  if (result.notFound) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
-  if (!validateGrade(result.student.grade) || !validateMajor(result.student.major)) return res.status(400).json({ ok: false, error: 'Kelas atau jurusan tidak valid.' });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
   res.json({ ok: true, student: result.student });
 });
 
 app.delete('/api/admin/students/:id', requireAdmin, (req, res) => {
-  const removed = mutateDb((db) => {
-    const exists = db.students.some((item) => item.id === req.params.id);
-    db.students = db.students.filter((item) => item.id !== req.params.id);
-    db.attempts = db.attempts.filter((item) => item.studentId !== req.params.id);
-    return exists;
+  const result = mutateDb((db) => {
+    const exists = db.students.some((student) => student.id === req.params.id);
+    if (!exists) return { error: 'Siswa tidak ditemukan.', code: 404 };
+
+    db.students = db.students.filter((student) => student.id !== req.params.id);
+    db.attempts = db.attempts.filter((attempt) => attempt.studentId !== req.params.id);
+    return { ok: true };
   });
-  if (!removed) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
+
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
   res.json({ ok: true });
 });
 
 app.post('/api/admin/questions', requireAdmin, (req, res) => {
-  const question = {
-    id: createId('question'),
-    examId: normalize(req.body.examId),
-    number: Number(req.body.number),
-    text: normalize(req.body.text),
-    options: {
-      A: normalize(req.body.A),
-      B: normalize(req.body.B),
-      C: normalize(req.body.C),
-      D: normalize(req.body.D),
-      E: normalize(req.body.E)
-    },
-    answer: normalize(req.body.answer).toUpperCase()
-  };
-
-  if (!question.examId || !Number.isInteger(question.number) || question.number < 1 || !question.text ||
-      Object.values(question.options).some((v) => !v) || !['A','B','C','D','E'].includes(question.answer)) {
-    return res.status(400).json({ ok: false, error: 'Data soal belum lengkap.' });
-  }
+  const parsed = validateQuestionInput(req.body);
+  if (parsed.error) return res.status(400).json({ ok: false, error: parsed.error });
 
   const result = mutateDb((db) => {
-    if (!db.exams.some((exam) => exam.id === question.examId)) return 'exam-not-found';
-    if (db.questions.some((q) => q.examId === question.examId && q.number === question.number)) return 'duplicate-number';
+    if (!db.exams.some((exam) => exam.id === parsed.question.examId)) return { error: 'Ujian tidak ditemukan.', code: 404 };
+    if (db.questions.some((question) => question.examId === parsed.question.examId && question.number === parsed.question.number)) {
+      return { error: 'Nomor soal sudah digunakan pada ujian ini.', code: 409 };
+    }
+    const question = { id: createId('question'), ...parsed.question };
     db.questions.push(question);
-    return question;
+    return { question };
   });
 
-  if (result === 'exam-not-found') return res.status(404).json({ ok: false, error: 'Ujian tidak ditemukan.' });
-  if (result === 'duplicate-number') return res.status(409).json({ ok: false, error: 'Nomor soal sudah digunakan pada ujian ini.' });
-  res.json({ ok: true, question: result });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json({ ok: true, question: result.question });
 });
 
 app.put('/api/admin/questions/:id', requireAdmin, (req, res) => {
   const result = mutateDb((db) => {
-    const question = db.questions.find((item) => item.id === req.params.id);
-    if (!question) return null;
-    if (req.body.number !== undefined) question.number = Number(req.body.number);
-    if (req.body.text !== undefined) question.text = normalize(req.body.text);
-    for (const key of ['A','B','C','D','E']) {
-      if (req.body[key] !== undefined) question.options[key] = normalize(req.body[key]);
+    const current = db.questions.find((question) => question.id === req.params.id);
+    if (!current) return { error: 'Soal tidak ditemukan.', code: 404 };
+
+    const parsed = validateQuestionInput({
+      ...current,
+      ...current.options,
+      ...req.body,
+      examId: req.body.examId ?? current.examId,
+      number: req.body.number ?? current.number,
+      text: req.body.text ?? current.text,
+      answer: req.body.answer ?? current.answer
+    });
+    if (parsed.error) return { error: parsed.error, code: 400 };
+
+    if (db.questions.some((question) =>
+      question.id !== current.id &&
+      question.examId === parsed.question.examId &&
+      question.number === parsed.question.number
+    )) {
+      return { error: 'Nomor soal sudah digunakan pada ujian ini.', code: 409 };
     }
-    if (req.body.answer !== undefined) question.answer = normalize(req.body.answer).toUpperCase();
-    return question;
+
+    Object.assign(current, parsed.question);
+    return { question: current };
   });
 
-  if (!result) return res.status(404).json({ ok: false, error: 'Soal tidak ditemukan.' });
-  res.json({ ok: true, question: result });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json({ ok: true, question: result.question });
 });
 
 app.delete('/api/admin/questions/:id', requireAdmin, (req, res) => {
-  const removed = mutateDb((db) => {
-    const exists = db.questions.some((item) => item.id === req.params.id);
-    db.questions = db.questions.filter((item) => item.id !== req.params.id);
-    return exists;
+  const result = mutateDb((db) => {
+    const exists = db.questions.some((question) => question.id === req.params.id);
+    if (!exists) return { error: 'Soal tidak ditemukan.', code: 404 };
+    db.questions = db.questions.filter((question) => question.id !== req.params.id);
+    return { ok: true };
   });
-  if (!removed) return res.status(404).json({ ok: false, error: 'Soal tidak ditemukan.' });
+
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
   res.json({ ok: true });
 });
 
 app.put('/api/admin/settings', requireAdmin, (req, res) => {
-  const result = mutateDb((db) => {
-    if (req.body.schoolName !== undefined) db.settings.schoolName = normalize(req.body.schoolName);
-    if (req.body.schoolSubtitle !== undefined) db.settings.schoolSubtitle = normalize(req.body.schoolSubtitle);
+  const schoolName = normalize(req.body.schoolName);
+  const schoolSubtitle = normalize(req.body.schoolSubtitle);
+  if (!validString(schoolName, 1, 160) || !validString(schoolSubtitle, 1, 240)) {
+    return res.status(400).json({ ok: false, error: 'Nama sekolah atau subjudul tidak valid.' });
+  }
+
+  const settings = mutateDb((db) => {
+    db.settings.schoolName = schoolName;
+    db.settings.schoolSubtitle = schoolSubtitle;
     return db.settings;
   });
-  res.json({ ok: true, settings: result });
+
+  res.json({ ok: true, settings });
 });
 
 app.use('/admin', express.static(path.join(__dirname, 'public/admin'), { index: 'index.html' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 
-app.use((err, req, res, next) => {
-  console.error(err);
+app.use((error, req, res, next) => {
+  console.error(error);
   res.status(500).json({ ok: false, error: 'Terjadi kesalahan server.' });
 });
 
