@@ -728,7 +728,6 @@ app.post('/api/admin/password', requireAdmin, (req, res) => {
     if (!admin || !verifyPassword(currentPassword, admin.password)) return { error: 'Password lama salah.', code: 401 };
     admin.password = hashPassword(newPassword);
     // Session cookie ditandatangani; tidak perlu menyimpan token session di database.
-    db.sessions = sessionsList.filter((session) => !(session.role === 'admin' && normalizeKey(session.username) === normalizeKey(req.session.username)));
     return { ok: true };
   });
 
