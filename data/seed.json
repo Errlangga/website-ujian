@@ -7,7 +7,7 @@
   "admins": [
     {
       "username": "admin",
-      "password": "admin123"
+      "password": "scrypt$2603de3690d9553ffed4d1270afc750d$661c2ce987bdc114a92b6b10bbf82c792c51f523799376e404cda174970d7a28"
     }
   ],
   "exams": [
