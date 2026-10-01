@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ujian Terkunci</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body>
+<header class="topbar"><div class="container nav"><div class="brand"><div class="brand-mark">!</div><div><div>Ujian Terkunci</div><small class="muted">Perlu kode dari admin/pengawas</small></div></div></div></header>
+<main class="student-wrap"><div class="container">
+<div class="panel" style="max-width:620px;margin:50px auto;padding:28px">
+<span class="eyebrow">Akses ujian terkunci</span>
+<h1 style="font-size:48px">Minta Kode Unlock</h1>
+<p class="lead">Kamu keluar dari halaman pengerjaan. Untuk melanjutkan ujian, minta kode unlock kepada admin atau pengawas ujian.</p>
+<div class="notice">Jawaban yang sudah tersimpan tetap ada. Waktu ujian tetap mengikuti waktu mulai sebelumnya.</div>
+<form id="unlockForm" style="margin-top:20px">
+<div class="field"><label for="code">Kode Unlock</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Contoh: 123456" required></div>
+<button class="btn btn-primary" style="width:100%">Buka Kembali Ujian</button>
+<div id="unlockMessage"></div>
+</form>
+<div class="toolbar" style="margin-top:12px"><a class="btn btn-ghost" href="/dashboard.html">Kembali ke dashboard</a><button class="btn btn-ghost" id="logoutBtn" type="button">Keluar</button></div>
+</div></div></main>
+<script src="/assets/unlock.js" defer></script>
+</body></html>
