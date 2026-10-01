@@ -8,15 +8,10 @@ const PORT = Number(process.env.PORT || 3000);
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 12;
-const loginAttempts = new Map();
-const sessions = new Map();
+const LOCK_STALE_MS = 25 * 1000;
+const SESSION_SECRET = process.env.SESSION_SECRET || 'website-ujian-local-session-secret-change-me';
 
-function cleanPersistedSessions(db) {
-  const sessionsList = Array.isArray(db.sessions) ? db.sessions : [];
-  const cutoff = nowMs();
-  db.sessions = sessionsList.filter((session) => session && session.expiresAt > cutoff && session.token);
-  return db.sessions;
-}
+const loginAttempts = new Map();
 
 const MAJORS = ['AKUTANSI', 'TBSM', 'TKJ'];
 const GRADES = ['10', '11', '12'];
@@ -25,19 +20,6 @@ const ANSWERS = ['A', 'B', 'C', 'D', 'E'];
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
-
-// Pastikan database lama mendapatkan wadah session tanpa mengubah data ujian.
-try {
-  const bootstrapDb = readDb();
-  if (!Array.isArray(bootstrapDb.sessions)) {
-    bootstrapDb.sessions = [];
-    const tmp = `${path.join(__dirname, 'data', 'db.json')}.bootstrap.tmp`;
-    require('fs').writeFileSync(tmp, JSON.stringify(bootstrapDb, null, 2), 'utf8');
-    require('fs').renameSync(tmp, path.join(__dirname, 'data', 'db.json'));
-  }
-} catch (error) {
-  console.error('Gagal menyiapkan session store:', error.message);
-}
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -51,7 +33,7 @@ function nowMs() {
 }
 
 function createId(prefix) {
-  return `${prefix}-${crypto.randomBytes(8).toString('hex')}`;
+  return prefix + '-' + crypto.randomBytes(8).toString('hex');
 }
 
 function createToken() {
@@ -92,69 +74,62 @@ function sessionCookieName(role) {
   return role === 'admin' ? 'admin_sid' : 'student_sid';
 }
 
+function base64url(value) {
+  return Buffer.from(value).toString('base64url');
+}
+
+function signSession(payload) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+}
+
+function encodeSession(sessionData) {
+  const payload = base64url(JSON.stringify({
+    ...sessionData,
+    exp: nowMs() + SESSION_TTL_MS
+  }));
+  return payload + '.' + signSession(payload);
+}
+
+function decodeSession(raw, expectedRole) {
+  try {
+    const parts = String(raw || '').split('.');
+    if (parts.length !== 2) return null;
+    const payload = parts[0];
+    const signature = parts[1];
+    const expected = signSession(payload);
+    const actualBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!data || data.role !== expectedRole || !data.exp || data.exp <= nowMs()) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 function getSessionToken(req, role) {
   const cookieName = sessionCookieName(role);
-  return req.headers.cookie?.match(new RegExp(`(?:^|; )${cookieName}=([^;]+)`))?.[1] || null;
+  return req.headers.cookie?.match(new RegExp('(?:^|; )' + cookieName + '=([^;]+)'))?.[1] || null;
 }
 
 function getSession(req, role) {
   const token = getSessionToken(req, role);
-  if (!token) return null;
-
-  const cached = sessions.get(token);
-  if (cached) {
-    if (cached.expiresAt <= nowMs()) {
-      sessions.delete(token);
-      return null;
-    }
-    return cached;
-  }
-
-  const db = readDb();
-  const persisted = cleanPersistedSessions(db).find((session) => session.token === token);
-  if (!persisted) return null;
-
-  sessions.set(token, persisted);
-  return persisted;
+  return decodeSession(token, role);
 }
 
 function setSession(res, sessionData) {
-  const token = createToken();
-  const session = {
-    token,
-    ...sessionData,
-    expiresAt: nowMs() + SESSION_TTL_MS
-  };
-
-  const db = readDb();
-  cleanPersistedSessions(db);
-  db.sessions.push(session);
-  writePersistedSessionDb(db);
-  sessions.set(token, session);
-
-  res.setHeader('Set-Cookie', `${sessionCookieName(sessionData.role)}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
-}
-
-function writePersistedSessionDb(db) {
-  const tmp = `${path.join(__dirname, 'data', 'db.json')}.session.tmp`;
-  require('fs').writeFileSync(tmp, JSON.stringify(db, null, 2), 'utf8');
-  require('fs').renameSync(tmp, path.join(__dirname, 'data', 'db.json'));
+  const cookieName = sessionCookieName(sessionData.role);
+  const token = encodeSession(sessionData);
+  res.setHeader('Set-Cookie', cookieName + '=' + token + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + Math.floor(SESSION_TTL_MS / 1000));
 }
 
 function clearSession(req, res, role) {
-  const activeRole = role || req.session?.role;
-  const roles = activeRole ? [activeRole] : ['admin', 'student'];
-
-  for (const currentRole of roles) {
-    const token = getSessionToken(req, currentRole);
-    if (token) {
-      sessions.delete(token);
-      const db = readDb();
-      cleanPersistedSessions(db);
-      db.sessions = db.sessions.filter((session) => session.token !== token);
-      writePersistedSessionDb(db);
-    }
-    res.append('Set-Cookie', `${sessionCookieName(currentRole)}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  const currentRole = role || req.session?.role;
+  const roles = currentRole ? [currentRole] : ['admin', 'student'];
+  for (const current of roles) {
+    res.append('Set-Cookie', sessionCookieName(current) + '=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
   }
 }
 
@@ -220,7 +195,9 @@ function serializeStudent(db, student) {
       startedAt: attempt.startedAt,
       submittedAt: attempt.submittedAt,
       answers: { ...(attempt.answers || {}) },
-      score: attempt.score
+      doubts: { ...(attempt.doubts || {}) },
+      lockedAt: attempt.lockedAt || null,
+      lockReason: attempt.lockReason || null
     } : null
   };
 }
@@ -245,8 +222,46 @@ function finalizeAttempt(attempt, db, exam) {
   if (!attempt.submittedAt) {
     attempt.score = calculateScore(db, attempt, exam.id);
     attempt.submittedAt = new Date().toISOString();
+    attempt.lockedAt = null;
+    attempt.unlockCode = null;
+    attempt.lastSeenAt = null;
   }
   return attempt;
+}
+
+function generateUnlockCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function lockAttempt(attempt, reason) {
+  if (!attempt || attempt.submittedAt) return attempt;
+  if (!attempt.lockedAt) {
+    attempt.lockedAt = new Date().toISOString();
+    attempt.lockReason = reason || 'Keluar dari halaman ujian';
+    attempt.unlockCode = generateUnlockCode();
+    attempt.unlockAttempts = 0;
+  }
+  attempt.lastSeenAt = null;
+  return attempt;
+}
+
+function unlockAttempt(attempt, code) {
+  if (!attempt || !attempt.lockedAt || !attempt.unlockCode) return false;
+  if (String(code).trim() !== String(attempt.unlockCode)) return false;
+  attempt.lockedAt = null;
+  attempt.lockReason = null;
+  attempt.unlockCode = null;
+  attempt.unlockAttempts = 0;
+  attempt.lastSeenAt = new Date().toISOString();
+  return true;
+}
+
+function markStaleAttempt(attempt) {
+  if (!attempt || attempt.submittedAt || attempt.lockedAt || !attempt.lastSeenAt) return false;
+  const lastSeen = new Date(attempt.lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeen) || nowMs() - lastSeen <= LOCK_STALE_MS) return false;
+  lockAttempt(attempt, 'Aktivitas ujian terputus');
+  return true;
 }
 
 function hashPassword(password) {
@@ -398,17 +413,23 @@ app.get('/api/student/me', requireStudent, (req, res) => {
   const db = readDb();
   const student = db.students.find((item) => item.id === req.session.studentId);
   if (!student || student.active === false) return res.status(404).json({ ok: false, error: 'Akun siswa tidak ditemukan atau sudah dinonaktifkan.' });
+
   const exam = examForStudent(db, student);
   if (exam) {
     const attempt = findAttempt(db, student.id, exam.id);
-    if (attempt && !attempt.submittedAt && isAttemptExpired(attempt, exam)) {
-      finalizeAttempt(attempt, db, exam);
-      mutateDb((nextDb) => {
-        const persisted = findAttempt(nextDb, student.id, exam.id);
-        if (persisted) finalizeAttempt(persisted, nextDb, exam);
-      });
+    if (attempt && !attempt.submittedAt) {
+      if (markStaleAttempt(attempt) || isAttemptExpired(attempt, exam)) {
+        if (isAttemptExpired(attempt, exam)) finalizeAttempt(attempt, db, exam);
+        mutateDb((nextDb) => {
+          const persisted = findAttempt(nextDb, student.id, exam.id);
+          if (!persisted) return;
+          if (isAttemptExpired(persisted, exam)) finalizeAttempt(persisted, nextDb, exam);
+          else if (attempt.lockedAt) lockAttempt(persisted, attempt.lockReason || 'Aktivitas ujian terputus');
+        });
+      }
     }
   }
+
   const freshDb = readDb();
   const freshStudent = freshDb.students.find((item) => item.id === student.id);
   res.json({ ok: true, serverNow: new Date().toISOString(), student: serializeStudent(freshDb, freshStudent) });
@@ -439,7 +460,13 @@ app.post('/api/student/start', requireStudent, (req, res) => {
         startedAt: new Date().toISOString(),
         submittedAt: null,
         answers: {},
-        score: null
+        doubts: {},
+        score: null,
+        lockedAt: null,
+        lockReason: null,
+        unlockCode: null,
+        unlockAttempts: 0,
+        lastSeenAt: new Date().toISOString()
       };
       nextDb.attempts.push(attempt);
     }
@@ -459,11 +486,20 @@ app.get('/api/student/questions', requireStudent, (req, res) => {
   if (!student || student.active === false) return res.status(404).json({ ok: false, error: 'Siswa tidak ditemukan.' });
   const exam = examForStudent(db, student);
   if (!exam) return res.status(404).json({ ok: false, error: 'Ujian tidak ditemukan.' });
+
   const attempt = findAttempt(db, student.id, exam.id);
   if (!attempt) return res.status(403).json({ ok: false, error: 'Silakan mulai ujian terlebih dahulu.' });
 
+  markStaleAttempt(attempt);
+  if (attempt.lockedAt) {
+    mutateDb((nextDb) => {
+      const persisted = findAttempt(nextDb, student.id, exam.id);
+      if (persisted) lockAttempt(persisted, attempt.lockReason || 'Aktivitas ujian terputus');
+    });
+    return res.status(423).json({ ok: false, locked: true, error: 'Ujian terkunci. Masukkan kode unlock dari admin.' });
+  }
+
   if (!attempt.submittedAt && isAttemptExpired(attempt, exam)) {
-    finalizeAttempt(attempt, db, exam);
     mutateDb((nextDb) => {
       const persisted = findAttempt(nextDb, student.id, exam.id);
       if (persisted) finalizeAttempt(persisted, nextDb, exam);
@@ -472,6 +508,20 @@ app.get('/api/student/questions', requireStudent, (req, res) => {
 
   const freshDb = readDb();
   const freshAttempt = findAttempt(freshDb, student.id, exam.id);
+  if (freshAttempt?.submittedAt) {
+    return res.status(409).json({ ok: false, submitted: true, error: 'Ujian sudah dikumpulkan.' });
+  }
+
+  if (!freshAttempt) return res.status(403).json({ ok: false, error: 'Percobaan ujian tidak ditemukan.' });
+
+  freshAttempt.lastSeenAt = new Date().toISOString();
+  mutateDb((nextDb) => {
+    const persisted = findAttempt(nextDb, student.id, exam.id);
+    if (persisted && !persisted.submittedAt && !persisted.lockedAt) persisted.lastSeenAt = new Date().toISOString();
+  });
+
+  const latestDb = readDb();
+  const latestAttempt = findAttempt(latestDb, student.id, exam.id);
   res.json({
     ok: true,
     serverNow: new Date().toISOString(),
@@ -480,19 +530,78 @@ app.get('/api/student/questions', requireStudent, (req, res) => {
       title: exam.title,
       durationMinutes: exam.durationMinutes,
       startTime: exam.startTime,
-      questionCount: questionCount(freshDb, exam.id)
+      questionCount: questionCount(latestDb, exam.id)
     },
-    questions: freshDb.questions
+    questions: latestDb.questions
       .filter((q) => q.examId === exam.id)
       .sort((a, b) => a.number - b.number)
       .map(publicQuestion),
     attempt: {
-      startedAt: freshAttempt.startedAt,
-      submittedAt: freshAttempt.submittedAt,
-      answers: { ...(freshAttempt.answers || {}) },
-      score: freshAttempt.score
+      startedAt: latestAttempt.startedAt,
+      submittedAt: latestAttempt.submittedAt,
+      answers: { ...(latestAttempt.answers || {}) },
+      doubts: { ...(latestAttempt.doubts || {}) }
     }
   });
+});
+
+app.post('/api/student/heartbeat', requireStudent, (req, res) => {
+  const result = mutateDb((db) => {
+    const student = db.students.find((item) => item.id === req.session.studentId);
+    const exam = student ? examForStudent(db, student) : null;
+    const attempt = student && exam ? findAttempt(db, student.id, exam.id) : null;
+    if (!student || !exam || !attempt) return { error: 'Percobaan ujian tidak ditemukan.', code: 404 };
+    if (attempt.submittedAt) return { error: 'Ujian sudah dikumpulkan.', code: 409 };
+    if (attempt.lockedAt) return { error: 'Ujian terkunci.', code: 423 };
+    if (isAttemptExpired(attempt, exam)) {
+      finalizeAttempt(attempt, db, exam);
+      return { expired: true };
+    }
+    attempt.lastSeenAt = new Date().toISOString();
+    return { ok: true };
+  });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json(result);
+});
+
+app.post('/api/student/lock', requireStudent, (req, res) => {
+  const result = mutateDb((db) => {
+    const student = db.students.find((item) => item.id === req.session.studentId);
+    const exam = student ? examForStudent(db, student) : null;
+    const attempt = student && exam ? findAttempt(db, student.id, exam.id) : null;
+    if (!student || !exam || !attempt) return { error: 'Percobaan ujian tidak ditemukan.', code: 404 };
+    if (attempt.submittedAt) return { ok: true, alreadySubmitted: true };
+    if (isAttemptExpired(attempt, exam)) {
+      finalizeAttempt(attempt, db, exam);
+      return { ok: true, expired: true };
+    }
+    lockAttempt(attempt, normalize(req.body.reason) || 'Keluar dari halaman ujian');
+    return { ok: true, locked: true };
+  });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json(result);
+});
+
+app.post('/api/student/unlock', requireStudent, (req, res) => {
+  const code = normalize(req.body.code);
+  const result = mutateDb((db) => {
+    const student = db.students.find((item) => item.id === req.session.studentId);
+    const exam = student ? examForStudent(db, student) : null;
+    const attempt = student && exam ? findAttempt(db, student.id, exam.id) : null;
+    if (!student || !exam || !attempt) return { error: 'Percobaan ujian tidak ditemukan.', code: 404 };
+    if (attempt.submittedAt) return { error: 'Ujian sudah dikumpulkan.', code: 409 };
+    if (!attempt.lockedAt) return { ok: true };
+    if (isAttemptExpired(attempt, exam)) {
+      finalizeAttempt(attempt, db, exam);
+      return { error: 'Waktu ujian sudah habis.', code: 410 };
+    }
+    attempt.unlockAttempts = Number(attempt.unlockAttempts || 0) + 1;
+    if (attempt.unlockAttempts > 5) return { error: 'Terlalu banyak percobaan kode unlock. Hubungi admin.', code: 429 };
+    if (!unlockAttempt(attempt, code)) return { error: 'Kode unlock salah.', code: 401 };
+    return { ok: true };
+  });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json(result);
 });
 
 app.post('/api/student/answer', requireStudent, (req, res) => {
@@ -511,14 +620,42 @@ app.post('/api/student/answer', requireStudent, (req, res) => {
     const attempt = findAttempt(db, student.id, exam.id);
     if (!attempt) return { error: 'Ujian belum dimulai.', code: 403 };
     if (attempt.submittedAt) return { error: 'Ujian sudah dikumpulkan.', code: 409 };
+    if (attempt.lockedAt) return { error: 'Ujian terkunci.', code: 423 };
     if (isAttemptExpired(attempt, exam)) return { error: 'Waktu ujian sudah habis.', code: 403 };
 
     attempt.answers = { ...(attempt.answers || {}), [questionId]: answer };
+    attempt.lastSeenAt = new Date().toISOString();
     return { answers: attempt.answers };
   });
 
   if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
   res.json({ ok: true, answers: result.answers });
+});
+
+app.post('/api/student/doubt', requireStudent, (req, res) => {
+  const questionId = normalize(req.body.questionId);
+  const value = Boolean(req.body.value);
+  if (!questionId) return res.status(400).json({ ok: false, error: 'Soal tidak valid.' });
+
+  const result = mutateDb((db) => {
+    const student = db.students.find((item) => item.id === req.session.studentId);
+    const exam = student ? examForStudent(db, student) : null;
+    const attempt = student && exam ? findAttempt(db, student.id, exam.id) : null;
+    const question = exam ? db.questions.find((item) => item.id === questionId && item.examId === exam.id) : null;
+    if (!student || !exam || !attempt || !question) return { error: 'Data soal tidak ditemukan.', code: 404 };
+    if (attempt.submittedAt) return { error: 'Ujian sudah dikumpulkan.', code: 409 };
+    if (attempt.lockedAt) return { error: 'Ujian terkunci.', code: 423 };
+    if (isAttemptExpired(attempt, exam)) return { error: 'Waktu ujian sudah habis.', code: 403 };
+
+    attempt.doubts = { ...(attempt.doubts || {}) };
+    if (value) attempt.doubts[questionId] = true;
+    else delete attempt.doubts[questionId];
+    attempt.lastSeenAt = new Date().toISOString();
+    return { doubts: attempt.doubts };
+  });
+
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json({ ok: true, doubts: result.doubts });
 });
 
 app.post('/api/student/submit', requireStudent, (req, res) => {
@@ -530,13 +667,14 @@ app.post('/api/student/submit', requireStudent, (req, res) => {
     const attempt = findAttempt(db, student.id, exam.id);
     if (!attempt) return { error: 'Ujian belum dimulai.', code: 403 };
     if (attempt.submittedAt) return { attempt };
+    if (attempt.lockedAt) return { error: 'Ujian terkunci. Minta kode unlock kepada admin.', code: 423 };
 
     finalizeAttempt(attempt, db, exam);
     return { attempt };
   });
 
   if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
-  res.json({ ok: true, attempt: result.attempt });
+  res.json({ ok: true, submittedAt: result.attempt.submittedAt });
 });
 
 app.post('/api/admin/login', (req, res) => {
@@ -589,7 +727,7 @@ app.post('/api/admin/password', requireAdmin, (req, res) => {
     const admin = db.admins.find((item) => normalizeKey(item.username) === normalizeKey(req.session.username));
     if (!admin || !verifyPassword(currentPassword, admin.password)) return { error: 'Password lama salah.', code: 401 };
     admin.password = hashPassword(newPassword);
-    const sessionsList = Array.isArray(db.sessions) ? db.sessions : [];
+    // Session cookie ditandatangani; tidak perlu menyimpan token session di database.
     db.sessions = sessionsList.filter((session) => !(session.role === 'admin' && normalizeKey(session.username) === normalizeKey(req.session.username)));
     return { ok: true };
   });
@@ -608,8 +746,10 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
       id: attempt.id,
       startedAt: attempt.startedAt,
       submittedAt: attempt.submittedAt,
-      answers: attempt.answers,
       score: attempt.score,
+      lockedAt: attempt.lockedAt || null,
+      lockReason: attempt.lockReason || null,
+      unlockCode: attempt.lockedAt ? attempt.unlockCode || null : null,
       student: student ? {
         id: student.id,
         name: student.name,
@@ -632,6 +772,24 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
     questions: db.questions,
     attempts
   });
+});
+
+app.post('/api/admin/unlock/:attemptId', requireAdmin, (req, res) => {
+  const result = mutateDb((db) => {
+    const attempt = db.attempts.find((item) => item.id === req.params.attemptId);
+    if (!attempt) return { error: 'Percobaan ujian tidak ditemukan.', code: 404 };
+    const exam = db.exams.find((item) => item.id === attempt.examId);
+    if (!exam) return { error: 'Ujian tidak ditemukan.', code: 404 };
+    if (attempt.submittedAt) return { error: 'Ujian sudah dikumpulkan.', code: 409 };
+    attempt.lockedAt = null;
+    attempt.lockReason = null;
+    attempt.unlockCode = null;
+    attempt.unlockAttempts = 0;
+    attempt.lastSeenAt = new Date().toISOString();
+    return { ok: true };
+  });
+  if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
+  res.json(result);
 });
 
 app.post('/api/admin/exams', requireAdmin, (req, res) => {
