@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ujian Sekolah</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body>
+<header class="topbar"><div class="container nav"><div class="brand"><div class="brand-mark">U</div><div><div id="schoolName">SMK Contoh</div><small class="muted" id="schoolSubtitle">Sistem Ujian Sekolah</small></div></div><a class="btn btn-ghost" href="/admin">Admin</a></div></header>
+<main class="hero"><div class="container hero-grid">
+<section><span class="eyebrow">● Portal siswa · ujian online</span><h1>Masuk Ujian<br>Tanpa Ribet.</h1><p class="lead">Masukkan kode ujian dan username yang diberikan sekolah. Setiap akun siswa memiliki pasangan kode dan username sendiri.</p></section>
+<section class="hero-card"><h3>Masuk ke ujian</h3><p class="muted">Kode dan username dibagikan oleh admin/panitia ujian.</p>
+<form id="loginForm"><div class="field"><label for="examCode">Kode Ujian</label><input id="examCode" autocomplete="off" placeholder="Contoh: BINDO-101" required></div><div class="field"><label for="username">Username Ujian</label><input id="username" autocomplete="off" placeholder="Contoh: siswa01" required></div><button class="btn btn-primary" style="width:100%" type="submit">Konfirmasi & Masuk</button><div id="loginMessage"></div></form>
+</section></div></main>
+<section class="section"><div class="container"><div class="section-head"><h2>Alur ujian</h2><span class="muted">Versi demo lokal</span></div><div class="cards">
+<article class="card"><span class="badge">01</span><h3>Masukkan akses</h3><p class="muted">Gunakan kode ujian dan username yang ditentukan untuk satu siswa.</p></article>
+<article class="card"><span class="badge">02</span><h3>Pilih mata pelajaran</h3><p class="muted">Klik mata pelajaran untuk melihat jadwal dan pemberitahuan ujian.</p></article>
+<article class="card"><span class="badge">03</span><h3>Jawab & kumpulkan</h3><p class="muted">Nomor merah berarti belum dikerjakan, hijau berarti sudah ada jawaban.</p></article>
+</div></div></section>
+<div class="container footer-note">Project pembelajaran website ujian sekolah · lokal, tidak dipasang ke Vercel.</div>
+<script src="/assets/login.js" defer></script>
+</body></html>
