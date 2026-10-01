@@ -1,14 +1,32 @@
 <!doctype html>
-<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Ujian</title><link rel="stylesheet" href="/assets/app.css"></head>
-<body><header class="topbar"><div class="container nav"><div class="brand"><div class="brand-mark">A</div><div><div>Admin Ujian</div><small class="muted">Kelola jadwal, siswa, dan soal</small></div></div><div class="toolbar"><a class="btn btn-ghost" href="/">Portal Siswa</a><button class="btn btn-ghost hidden" id="logoutBtn">Keluar</button></div></div></header>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Ujian</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body>
+<header class="topbar"><div class="container nav">
+  <div class="brand"><div class="brand-mark">A</div><div><div>Admin Ujian</div><small class="muted">Kelola jadwal, siswa, dan soal</small></div></div>
+  <div class="toolbar"><a class="btn btn-ghost" href="/">Portal Siswa</a><button class="btn btn-ghost hidden" id="logoutBtn">Keluar</button></div>
+</div></header>
+
 <main class="admin-wrap"><div class="container">
-<section id="loginPanel" class="panel" style="max-width:520px;margin:50px auto;padding:28px"><span class="eyebrow">Panel admin</span><h1 style="font-size:46px">Masuk Admin</h1><form id="adminLoginForm"><div class="field"><label>Username</label><input id="adminUsername" value="admin" required></div><div class="field"><label>Password</label><input id="adminPassword" type="password" value="admin123" required></div><button class="btn btn-primary" style="width:100%">Masuk</button><div id="loginMessage"></div></form></section>
-<section id="dashboardPanel" class="hidden"><div class="section-head"><div><span class="eyebrow">Dashboard</span><h2 style="margin:12px 0 4px">Kontrol ujian sekolah</h2><div class="muted">Atur mata pelajaran, siswa, jadwal, dan soal dari satu tempat.</div></div></div>
-<div class="kpis" id="kpis"></div>
-<div class="tabs"><button class="tab active" data-tab="overview">Ringkasan</button><button class="tab" data-tab="exams">Ujian</button><button class="tab" data-tab="students">Siswa</button><button class="tab" data-tab="questions">Soal</button></div>
-<div id="tab-overview" class="panel" style="padding:20px"></div>
-<div id="tab-exams" class="panel hidden" style="padding:20px"></div>
-<div id="tab-students" class="panel hidden" style="padding:20px"></div>
-<div id="tab-questions" class="panel hidden" style="padding:20px"></div>
-</section></div></main>
+<section id="loginPanel" class="panel" style="max-width:520px;margin:50px auto;padding:28px">
+  <span class="eyebrow">Panel admin</span><h1 style="font-size:46px">Masuk Admin</h1>
+  <p class="muted">Demo pertama: username <strong>admin</strong>, password <strong>admin123</strong>.</p>
+  <form id="adminLoginForm">
+    <div class="field"><label>Username</label><input id="adminUsername" autocomplete="username" required></div>
+    <div class="field"><label>Password</label><input id="adminPassword" type="password" autocomplete="current-password" required></div>
+    <button class="btn btn-primary" style="width:100%">Masuk</button>
+    <div id="loginMessage"></div>
+  </form>
+</section>
+
+<section id="dashboardPanel" class="hidden">
+  <div class="section-head"><div><span class="eyebrow">Dashboard</span><h2 style="margin:12px 0 4px">Kontrol ujian sekolah</h2><div class="muted">Atur mata pelajaran, siswa, jadwal, dan soal dari satu tempat.</div></div></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="tabs"><button class="tab active" data-tab="overview">Ringkasan</button><button class="tab" data-tab="exams">Ujian</button><button class="tab" data-tab="students">Siswa</button><button class="tab" data-tab="questions">Soal</button></div>
+  <div id="tab-overview" class="panel" style="padding:20px"></div>
+  <div id="tab-exams" class="panel hidden" style="padding:20px"></div>
+  <div id="tab-students" class="panel hidden" style="padding:20px"></div>
+  <div id="tab-questions" class="panel hidden" style="padding:20px"></div>
+</section>
+</div></main>
 <script src="/admin/admin.js" defer></script></body></html>
