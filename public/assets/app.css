@@ -26,3 +26,9 @@ input:focus,select:focus,textarea:focus{border-color:rgba(87,165,255,.7);box-sha
 .timer{padding:13px 15px;border-radius:14px;background:rgba(244,184,96,.08);border:1px solid rgba(244,184,96,.22);color:#ffd08c;font-weight:800}.footer-note{color:#6e809c;text-align:center;padding:18px 0 34px;font-size:13px}
 @media(max-width:900px){.hero-grid,.question-layout{grid-template-columns:1fr}.cards{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}.question-nav{position:static}}
 @media(max-width:600px){.container{width:min(100% - 20px,1180px)}.hero{padding-top:40px}.grid-2{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}h1{font-size:48px}.nav{min-height:64px}}
+
+.qbtn.doubt{border-color:rgba(244,184,96,.55);color:#ffe1a8;background:rgba(244,184,96,.14)}
+.doubt-btn{border:1px solid rgba(244,184,96,.3);color:#ffd997;background:rgba(244,184,96,.08)}
+.doubt-btn.active{border-color:rgba(244,184,96,.65);background:rgba(244,184,96,.18);color:#fff0c7}
+.status-legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:12px}.status-legend span{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}.dot.red{background:var(--bad)}.dot.green{background:var(--good)}.dot.yellow{background:var(--warn)}
