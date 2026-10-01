@@ -17,7 +17,7 @@
       "title": "Ujian Bahasa Indonesia",
       "startTime": "2026-10-02T11:00:00+07:00",
       "durationMinutes": 60,
-      "instructions": "Baca setiap soal dengan teliti. Pilih satu jawaban A sampai E. Jawaban tersimpan otomatis saat dipilih."
+      "instructions": "Baca setiap soal dengan teliti. Pilih satu jawaban A sampai E. Gunakan tanda ragu-ragu bila ingin meninjau kembali soal."
     }
   ],
   "students": [
@@ -74,6 +74,314 @@
         "E": "penjagaan"
       },
       "answer": "A"
+    },
+    {
+      "id": "q4",
+      "examId": "exam-bindo-2026",
+      "number": 4,
+      "text": "Ide pokok sebuah paragraf disebut juga ...",
+      "options": {
+        "A": "Kalimat penjelas",
+        "B": "Gagasan utama",
+        "C": "Kata penghubung",
+        "D": "Ilustrasi",
+        "E": "Kesimpulan sementara"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q5",
+      "examId": "exam-bindo-2026",
+      "number": 5,
+      "text": "Kalimat yang paling efektif adalah ...",
+      "options": {
+        "A": "Para siswa-siswa segera masuk kelas.",
+        "B": "Para siswa segera masuk ke dalam kelas.",
+        "C": "Siswa-siswa semuanya segera masuk kelas.",
+        "D": "Para siswa segera masuk kelas.",
+        "E": "Semua para siswa segera masuk kelas."
+      },
+      "answer": "D"
+    },
+    {
+      "id": "q6",
+      "examId": "exam-bindo-2026",
+      "number": 6,
+      "text": "Kata baku yang tepat adalah ...",
+      "options": {
+        "A": "resiko",
+        "B": "ijin",
+        "C": "aktifitas",
+        "D": "risiko",
+        "E": "apotik"
+      },
+      "answer": "D"
+    },
+    {
+      "id": "q7",
+      "examId": "exam-bindo-2026",
+      "number": 7,
+      "text": "Teks yang bertujuan menggambarkan suatu objek secara rinci disebut teks ...",
+      "options": {
+        "A": "Deskripsi",
+        "B": "Eksposisi",
+        "C": "Negosiasi",
+        "D": "Argumentasi",
+        "E": "Persuasi"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q8",
+      "examId": "exam-bindo-2026",
+      "number": 8,
+      "text": "Bagian teks berita yang berisi informasi paling penting disebut ...",
+      "options": {
+        "A": "Orientasi",
+        "B": "Teras berita",
+        "C": "Penutup",
+        "D": "Interpretasi",
+        "E": "Koda"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q9",
+      "examId": "exam-bindo-2026",
+      "number": 9,
+      "text": "Slogan biasanya dibuat dengan kalimat yang ...",
+      "options": {
+        "A": "Panjang dan rinci",
+        "B": "Singkat dan mudah diingat",
+        "C": "Penuh istilah ilmiah",
+        "D": "Bersifat rahasia",
+        "E": "Selalu berbentuk paragraf"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q10",
+      "examId": "exam-bindo-2026",
+      "number": 10,
+      "text": "Kata penghubung yang menyatakan sebab adalah ...",
+      "options": {
+        "A": "tetapi",
+        "B": "atau",
+        "C": "karena",
+        "D": "kemudian",
+        "E": "sedangkan"
+      },
+      "answer": "C"
+    },
+    {
+      "id": "q11",
+      "examId": "exam-bindo-2026",
+      "number": 11,
+      "text": "Kalimat yang menggunakan tanda koma dengan tepat adalah ...",
+      "options": {
+        "A": "Ibu membeli sayur buah dan ikan.",
+        "B": "Ibu membeli sayur, buah, dan ikan.",
+        "C": "Ibu membeli, sayur buah dan ikan.",
+        "D": "Ibu membeli sayur buah, dan ikan.",
+        "E": "Ibu, membeli sayur buah dan ikan."
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q12",
+      "examId": "exam-bindo-2026",
+      "number": 12,
+      "text": "Tokoh yang menjadi pusat cerita disebut tokoh ...",
+      "options": {
+        "A": "Tambahan",
+        "B": "Pembantu",
+        "C": "Utama",
+        "D": "Figuran",
+        "E": "Latar"
+      },
+      "answer": "C"
+    },
+    {
+      "id": "q13",
+      "examId": "exam-bindo-2026",
+      "number": 13,
+      "text": "Latar yang menunjukkan tempat terjadinya peristiwa disebut latar ...",
+      "options": {
+        "A": "Waktu",
+        "B": "Suasana",
+        "C": "Tempat",
+        "D": "Sosial",
+        "E": "Budaya"
+      },
+      "answer": "C"
+    },
+    {
+      "id": "q14",
+      "examId": "exam-bindo-2026",
+      "number": 14,
+      "text": "Teks eksposisi bertujuan untuk ...",
+      "options": {
+        "A": "Memberi informasi atau penjelasan",
+        "B": "Menghibur melalui konflik tokoh",
+        "C": "Menceritakan khayalan",
+        "D": "Menyusun dialog drama",
+        "E": "Membuat teka-teki"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q15",
+      "examId": "exam-bindo-2026",
+      "number": 15,
+      "text": "Kalimat persuasi biasanya bertujuan untuk ...",
+      "options": {
+        "A": "Mengajak atau memengaruhi pembaca",
+        "B": "Mencatat data pribadi",
+        "C": "Menceritakan masa lalu",
+        "D": "Menggambarkan tempat",
+        "E": "Menjelaskan definisi saja"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q16",
+      "examId": "exam-bindo-2026",
+      "number": 16,
+      "text": "Lawan kata 'optimis' adalah ...",
+      "options": {
+        "A": "Aktif",
+        "B": "Pesimis",
+        "C": "Kreatif",
+        "D": "Produktif",
+        "E": "Dinamis"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q17",
+      "examId": "exam-bindo-2026",
+      "number": 17,
+      "text": "Persamaan makna kata 'cermat' adalah ...",
+      "options": {
+        "A": "Ceroboh",
+        "B": "Teliti",
+        "C": "Lambat",
+        "D": "Bingung",
+        "E": "Berani"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q18",
+      "examId": "exam-bindo-2026",
+      "number": 18,
+      "text": "Kalimat 'Mereka belajar agar lulus ujian.' menggunakan kata hubung yang menyatakan ...",
+      "options": {
+        "A": "Sebab",
+        "B": "Tujuan",
+        "C": "Pertentangan",
+        "D": "Pilihan",
+        "E": "Waktu"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q19",
+      "examId": "exam-bindo-2026",
+      "number": 19,
+      "text": "Dalam surat resmi, bahasa yang digunakan sebaiknya ...",
+      "options": {
+        "A": "Santai dan bebas",
+        "B": "Baku dan sopan",
+        "C": "Penuh singkatan gaul",
+        "D": "Tidak mengikuti ejaan",
+        "E": "Seperti bahasa percakapan"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q20",
+      "examId": "exam-bindo-2026",
+      "number": 20,
+      "text": "Bagian penutup surat pribadi biasanya berisi ...",
+      "options": {
+        "A": "Identitas penerima",
+        "B": "Salam penutup dan harapan",
+        "C": "Judul berita",
+        "D": "Daftar pustaka",
+        "E": "Metode penelitian"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q21",
+      "examId": "exam-bindo-2026",
+      "number": 21,
+      "text": "Kalimat berikut yang termasuk kalimat perintah adalah ...",
+      "options": {
+        "A": "Kapan kamu datang?",
+        "B": "Tolong rapikan meja ini.",
+        "C": "Hari ini cuaca cerah.",
+        "D": "Saya membaca buku.",
+        "E": "Mereka sudah pulang."
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q22",
+      "examId": "exam-bindo-2026",
+      "number": 22,
+      "text": "Urutan peristiwa dalam cerita disebut ...",
+      "options": {
+        "A": "Alur",
+        "B": "Tema",
+        "C": "Amanat",
+        "D": "Sudut pandang",
+        "E": "Latar"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q23",
+      "examId": "exam-bindo-2026",
+      "number": 23,
+      "text": "Pesan yang ingin disampaikan pengarang kepada pembaca disebut ...",
+      "options": {
+        "A": "Tema",
+        "B": "Amanat",
+        "C": "Alur",
+        "D": "Tokoh",
+        "E": "Konflik"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q24",
+      "examId": "exam-bindo-2026",
+      "number": 24,
+      "text": "Kalimat yang tepat untuk membuka presentasi resmi adalah ...",
+      "options": {
+        "A": "Hai guys, kita mulai ya.",
+        "B": "Oke deh, kita langsung saja.",
+        "C": "Selamat pagi, Bapak/Ibu dan teman-teman yang saya hormati.",
+        "D": "Kalian semua dengar, ya.",
+        "E": "Bro, saya mau presentasi."
+      },
+      "answer": "C"
+    },
+    {
+      "id": "q25",
+      "examId": "exam-bindo-2026",
+      "number": 25,
+      "text": "Ringkasan isi bacaan harus mempertahankan ...",
+      "options": {
+        "A": "Semua kata dari teks asli",
+        "B": "Gagasan-gagasan pokok",
+        "C": "Hanya contoh-contohnya",
+        "D": "Hanya kalimat terakhir",
+        "E": "Semua detail kecil"
+      },
+      "answer": "B"
     }
   ],
   "attempts": []
