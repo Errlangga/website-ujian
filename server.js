@@ -88,12 +88,17 @@ function validateAnswer(value) {
   return ANSWERS.includes(value);
 }
 
-function getSessionToken(req) {
-  return req.headers.cookie?.match(/(?:^|; )sid=([^;]+)/)?.[1] || null;
+function sessionCookieName(role) {
+  return role === 'admin' ? 'admin_sid' : 'student_sid';
 }
 
-function getSession(req) {
-  const token = getSessionToken(req);
+function getSessionToken(req, role) {
+  const cookieName = sessionCookieName(role);
+  return req.headers.cookie?.match(new RegExp(`(?:^|; )${cookieName}=([^;]+)`))?.[1] || null;
+}
+
+function getSession(req, role) {
+  const token = getSessionToken(req, role);
   if (!token) return null;
 
   const cached = sessions.get(token);
@@ -127,7 +132,7 @@ function setSession(res, sessionData) {
   writePersistedSessionDb(db);
   sessions.set(token, session);
 
-  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
+  res.setHeader('Set-Cookie', `${sessionCookieName(sessionData.role)}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
 }
 
 function writePersistedSessionDb(db) {
@@ -136,22 +141,25 @@ function writePersistedSessionDb(db) {
   require('fs').renameSync(tmp, path.join(__dirname, 'data', 'db.json'));
 }
 
-function clearSession(req, res) {
-  const token = getSessionToken(req);
-  if (token) sessions.delete(token);
+function clearSession(req, res, role) {
+  const activeRole = role || req.session?.role;
+  const roles = activeRole ? [activeRole] : ['admin', 'student'];
 
-  if (token) {
-    const db = readDb();
-    cleanPersistedSessions(db);
-    db.sessions = db.sessions.filter((session) => session.token !== token);
-    writePersistedSessionDb(db);
+  for (const currentRole of roles) {
+    const token = getSessionToken(req, currentRole);
+    if (token) {
+      sessions.delete(token);
+      const db = readDb();
+      cleanPersistedSessions(db);
+      db.sessions = db.sessions.filter((session) => session.token !== token);
+      writePersistedSessionDb(db);
+    }
+    res.append('Set-Cookie', `${sessionCookieName(currentRole)}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
   }
-
-  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
 }
 
 function requireStudent(req, res, next) {
-  const session = getSession(req);
+  const session = getSession(req, 'student');
   if (!session || session.role !== 'student') {
     return res.status(401).json({ ok: false, error: 'Sesi siswa tidak ditemukan.' });
   }
@@ -160,7 +168,7 @@ function requireStudent(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-  const session = getSession(req);
+  const session = getSession(req, 'admin');
   if (!session || session.role !== 'admin') {
     return res.status(401).json({ ok: false, error: 'Sesi admin tidak ditemukan.' });
   }
@@ -382,7 +390,7 @@ app.post('/api/student/login', (req, res) => {
 });
 
 app.post('/api/student/logout', requireStudent, (req, res) => {
-  clearSession(req, res);
+  clearSession(req, res, 'student');
   res.json({ ok: true });
 });
 
@@ -562,7 +570,7 @@ app.post('/api/admin/login', (req, res) => {
 });
 
 app.post('/api/admin/logout', requireAdmin, (req, res) => {
-  clearSession(req, res);
+  clearSession(req, res, 'admin');
   res.json({ ok: true });
 });
 
@@ -587,7 +595,7 @@ app.post('/api/admin/password', requireAdmin, (req, res) => {
   });
 
   if (result.error) return res.status(result.code).json({ ok: false, error: result.error });
-  clearSession(req, res);
+  clearSession(req, res, 'admin');
   res.json({ ok: true, message: 'Password berhasil diganti. Silakan login kembali.' });
 });
 
