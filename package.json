@@ -1,11 +1,12 @@
 {
   "name": "website-ujian",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Website ujian sekolah lokal untuk siswa dan admin.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check db.js && node --check public/assets/login.js && node --check public/assets/dashboard.js && node --check public/assets/instruction.js && node --check public/assets/exam.js && node --check public/admin/admin.js"
   },
   "engines": {
     "node": ">=20"
