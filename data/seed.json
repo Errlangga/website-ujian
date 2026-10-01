@@ -1,0 +1,80 @@
+{
+  "settings": {
+    "schoolName": "SMK Contoh",
+    "schoolSubtitle": "Sistem Ujian Sekolah",
+    "timezone": "Asia/Jakarta"
+  },
+  "admins": [
+    {
+      "username": "admin",
+      "password": "admin123"
+    }
+  ],
+  "exams": [
+    {
+      "id": "exam-bindo-2026",
+      "subject": "Bahasa Indonesia",
+      "title": "Ujian Bahasa Indonesia",
+      "startTime": "2026-10-02T11:00:00+07:00",
+      "durationMinutes": 60,
+      "instructions": "Baca setiap soal dengan teliti. Pilih satu jawaban A sampai E. Jawaban tersimpan otomatis saat dipilih."
+    }
+  ],
+  "students": [
+    {
+      "id": "student-demo",
+      "name": "Siswa Demo",
+      "username": "siswa01",
+      "examCode": "BINDO-101",
+      "grade": "10",
+      "major": "TKJ",
+      "examId": "exam-bindo-2026",
+      "active": true
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "examId": "exam-bindo-2026",
+      "number": 1,
+      "text": "Kalimat yang menggunakan ejaan sesuai kaidah bahasa Indonesia adalah ...",
+      "options": {
+        "A": "Ibu membeli obat di apotik.",
+        "B": "Siswa itu mensukseskan acara sekolah.",
+        "C": "Ayah pergi ke apotek setelah bekerja.",
+        "D": "Kami merubah jadwal rapat.",
+        "E": "Mereka mengkomunikasikan hasilnya."
+      },
+      "answer": "C"
+    },
+    {
+      "id": "q2",
+      "examId": "exam-bindo-2026",
+      "number": 2,
+      "text": "Tujuan utama teks prosedur adalah ...",
+      "options": {
+        "A": "Menghibur pembaca dengan cerita",
+        "B": "Menjelaskan langkah melakukan sesuatu",
+        "C": "Mendeskripsikan tokoh",
+        "D": "Meyakinkan pembaca dengan pendapat",
+        "E": "Menceritakan kejadian masa lalu"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q3",
+      "examId": "exam-bindo-2026",
+      "number": 3,
+      "text": "Kata yang paling tepat untuk melengkapi kalimat berikut: 'Para siswa ... kebersihan kelas setiap pagi.'",
+      "options": {
+        "A": "menjaga",
+        "B": "penjaga",
+        "C": "terjaga",
+        "D": "dijaga",
+        "E": "penjagaan"
+      },
+      "answer": "A"
+    }
+  ],
+  "attempts": []
+}
