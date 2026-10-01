@@ -11,6 +11,13 @@ const MAX_LOGIN_ATTEMPTS = 12;
 const loginAttempts = new Map();
 const sessions = new Map();
 
+function cleanPersistedSessions(db) {
+  const sessionsList = Array.isArray(db.sessions) ? db.sessions : [];
+  const cutoff = nowMs();
+  db.sessions = sessionsList.filter((session) => session && session.expiresAt > cutoff && session.token);
+  return db.sessions;
+}
+
 const MAJORS = ['AKUTANSI', 'TBSM', 'TKJ'];
 const GRADES = ['10', '11', '12'];
 const ANSWERS = ['A', 'B', 'C', 'D', 'E'];
@@ -18,6 +25,19 @@ const ANSWERS = ['A', 'B', 'C', 'D', 'E'];
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
+
+// Pastikan database lama mendapatkan wadah session tanpa mengubah data ujian.
+try {
+  const bootstrapDb = readDb();
+  if (!Array.isArray(bootstrapDb.sessions)) {
+    bootstrapDb.sessions = [];
+    const tmp = `${path.join(__dirname, 'data', 'db.json')}.bootstrap.tmp`;
+    require('fs').writeFileSync(tmp, JSON.stringify(bootstrapDb, null, 2), 'utf8');
+    require('fs').renameSync(tmp, path.join(__dirname, 'data', 'db.json'));
+  }
+} catch (error) {
+  console.error('Gagal menyiapkan session store:', error.message);
+}
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -75,24 +95,58 @@ function getSessionToken(req) {
 function getSession(req) {
   const token = getSessionToken(req);
   if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  if (session.expiresAt <= nowMs()) {
-    sessions.delete(token);
-    return null;
+
+  const cached = sessions.get(token);
+  if (cached) {
+    if (cached.expiresAt <= nowMs()) {
+      sessions.delete(token);
+      return null;
+    }
+    return cached;
   }
-  return session;
+
+  const db = readDb();
+  const persisted = cleanPersistedSessions(db).find((session) => session.token === token);
+  if (!persisted) return null;
+
+  sessions.set(token, persisted);
+  return persisted;
 }
 
 function setSession(res, sessionData) {
   const token = createToken();
-  sessions.set(token, { ...sessionData, expiresAt: nowMs() + SESSION_TTL_MS });
+  const session = {
+    token,
+    ...sessionData,
+    expiresAt: nowMs() + SESSION_TTL_MS
+  };
+
+  const db = readDb();
+  cleanPersistedSessions(db);
+  db.sessions.push(session);
+  writePersistedSessionDb(db);
+  sessions.set(token, session);
+
   res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
+}
+
+function writePersistedSessionDb(db) {
+  const tmp = `${path.join(__dirname, 'data', 'db.json')}.session.tmp`;
+  require('fs').writeFileSync(tmp, JSON.stringify(db, null, 2), 'utf8');
+  require('fs').renameSync(tmp, path.join(__dirname, 'data', 'db.json'));
 }
 
 function clearSession(req, res) {
   const token = getSessionToken(req);
   if (token) sessions.delete(token);
+
+  if (token) {
+    const db = readDb();
+    cleanPersistedSessions(db);
+    db.sessions = db.sessions.filter((session) => session.token !== token);
+    writePersistedSessionDb(db);
+  }
+
   res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
 }
 
@@ -527,6 +581,8 @@ app.post('/api/admin/password', requireAdmin, (req, res) => {
     const admin = db.admins.find((item) => normalizeKey(item.username) === normalizeKey(req.session.username));
     if (!admin || !verifyPassword(currentPassword, admin.password)) return { error: 'Password lama salah.', code: 401 };
     admin.password = hashPassword(newPassword);
+    const sessionsList = Array.isArray(db.sessions) ? db.sessions : [];
+    db.sessions = sessionsList.filter((session) => !(session.role === 'admin' && normalizeKey(session.username) === normalizeKey(req.session.username)));
     return { ok: true };
   });
 
