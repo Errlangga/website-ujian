@@ -35,7 +35,7 @@ async function load(){
         <h3>${escapeHtml(student.exam.subject)}</h3>
         <p>${escapeHtml(student.exam.title)}</p>
         <p class="muted">Klik kartu ini untuk melihat jadwal dan petunjuk sebelum ujian.</p>
-        <a class="btn btn-primary" href="/instruction.html" style="display:inline-block">${submitted?'Lihat Status Ujian':'Buka Mata Pelajaran'}</a>
+        <a class="btn btn-primary" href="${submitted?'/status.html':'/instruction.html'}" style="display:inline-block">${submitted?'Lihat Status Ujian':'Buka Mata Pelajaran'}</a>
       </article>
       <article class="card">
         <span class="badge">Jadwal</span>
