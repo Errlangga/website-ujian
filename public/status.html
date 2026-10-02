@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Status Ujian</title><link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header class="topbar"><div class="container nav">
+  <div class="brand"><div class="brand-mark">U</div><div><div id="schoolName">SMK Contoh</div><small class="muted" id="schoolSubtitle">Sistem Ujian Sekolah</small></div></div>
+  <div class="toolbar"><a class="btn btn-ghost" href="/dashboard.html">Dashboard</a><button class="btn btn-ghost" id="logoutBtn">Keluar</button></div>
+</div></header>
+<main class="student-wrap"><div class="container">
+  <section class="panel" style="max-width:820px;margin:30px auto;padding:28px">
+    <span class="eyebrow">Status ujian</span>
+    <h1 id="statusTitle" style="font-size:48px;margin:18px 0 8px">Memuat...</h1>
+    <p class="lead" id="statusDescription">Mengambil status terbaru dari server.</p>
+    <div class="cards" style="margin-top:22px">
+      <article class="card"><span class="badge">Mata pelajaran</span><h3 id="subject">-</h3><p class="muted" id="examTitle">-</p></article>
+      <article class="card"><span class="badge">Jadwal</span><h3 id="schedule">-</h3><p class="muted" id="duration">-</p></article>
+      <article class="card"><span class="badge">Progres</span><h3 id="progress">-</h3><p class="muted">Jawaban yang tersimpan di server.</p></article>
+    </div>
+    <div id="statusAction" style="margin-top:20px"></div>
+  </section>
+</div></main>
+<script src="/assets/status.js?v=1" defer></script>
+</body></html>
